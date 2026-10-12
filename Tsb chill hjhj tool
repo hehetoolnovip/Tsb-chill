@@ -1,0 +1,1642 @@
+-- Script Lua cho Roblox: Menu v9 - Trang trí đẹp + Fix chức năng + Thêm nhiều chức năng hoạt động
+-- Tác giả: palofsc
+-- Môi trường: Client-side (LocalScript hoặc executor)
+
+-- ============ BƯỚC 1: KHAI BÁO SERVICE VÀ BIẾN ============
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local TweenService = game:GetService("TweenService")
+local Lighting = game:GetService("Lighting")
+local CoreGui = game:GetService("CoreGui")
+local LocalPlayer = Players.LocalPlayer
+
+local State = {
+    -- Basic
+    GodMode = false,
+    HideSelf = false,
+    InfiniteJump = false,
+    AntiRagdoll = false,
+    AutoRespawn = false,
+    Noclip = false,
+    AntiVoid = false,
+    AntiFling = false,
+    FreezeSelf = false,
+    WalkspeedValue = 100,
+    JumpValue = 200,
+    -- Lock
+    LockEnabled = false,
+    LockMode = "Nearest",
+    CurrentTarget = nil,
+    LockOffset = 3,
+    LockHeight = 1.5,
+    LockSmooth = 0.25,
+    CameraLock = false,
+    -- Visual
+    ESPEnabled = false,
+    ESPObjects = {},
+    TracerEnabled = false,
+    TracerObjects = {},
+    TracerColor = Color3.fromRGB(255, 50, 50),
+    TracerThickness = 2,
+    TracerFrom = "Bottom",
+    NameTagEnabled = false,
+    NameTagObjects = {},
+    FullBright = false,
+    OriginalLighting = {},
+    -- Combat
+    HitboxExpander = false,
+    HitboxSize = 5,
+    -- Movement
+    FlyEnabled = false,
+    FlySpeed = 50,
+    ClickTP = false,
+    -- Server/Grief - WORKING FUNCTIONS
+    FreezeAll = false,           -- Đóng băng người chơi khác (client-side)
+    FreezeNPC = false,           -- Đóng băng NPC
+    AutoKillAll = false,         -- Kill tất cả
+    AutoFlingAll = false,        -- Đẩy bay
+    AutoFlingPower = 1000,
+    AutoLagAll = false,          -- Spam part gây lag
+    AutoSpinAll = false,         -- Xoay người khác
+    AutoTeleportAll = false,     -- Dịch chuyển lên trời
+    AutoStripTools = false,      -- Tước vũ khí
+    AutoRemoveAccessories = false,
+    AutoDamageAll = false,       -- Sát thương liên tục
+    DamageAmount = 5,
+    AutoBurnAll = false,         -- Đốt cháy
+    AutoInvisibleOthers = false, -- Tàng hình người khác
+    AutoSlowAll = false,         -- Làm chậm
+    SlowValue = 2,
+    AutoVoidAll = false,         -- Ném xuống âm
+    AutoSizeAll = false,         -- Phóng to
+    SizeValue = 10,
+    AutoTransparencyAll = false, -- Mờ ảo
+    AutoColorAll = false,        -- Sơn đỏ
+    AutoGravityAll = false,      -- Đổi trọng lực
+    GravityValue = 0,
+    AutoSpeedAll = false,        -- Chạy nhanh
+    SpeedValueAll = 500,
+    AutoHealthAll = false,       -- Máu = 1
+    HealthValueAll = 1,
+    AutoNoClipAll = false,       -- Xuyên tường
+    AutoAnchorAll = false,       -- Đóng băng cứng
+    AutoSitAll = false,          -- Ngồi
+    AutoDanceAll = false,        -- Nhảy múa
+    -- Ragdoll Loop
+    AutoRagdollLoopAll = false,  -- Auto ngã liên tục
+    RagdollInterval = 0.1,
+    -- Group
+    OriginalPositions = {},
+    -- Map
+    MapRemoved = false,
+}
+
+-- ============ BƯỚC 2: HÀM ẨN BẢN THÂN ============
+local function applyHideSelf(character)
+    if not character then return end
+    local humanoid = character:FindFirstChildOfClass("Humanoid")
+    if humanoid then
+        humanoid.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None
+        humanoid.NameDisplayDistance = 0
+        humanoid.HealthDisplayDistance = 0
+        humanoid.HealthDisplayType = Enum.HumanoidHealthDisplayType.AlwaysOff
+    end
+    for _, obj in ipairs(character:GetDescendants()) do
+        if obj:IsA("BasePart") then
+            obj.CanCollide = false
+            obj.CanQuery = false
+            obj.CanTouch = false
+            obj.Transparency = 1
+            obj.Massless = true
+            obj.Size = Vector3.new(0.1, 0.1, 0.1)
+        elseif obj:IsA("BillboardGui") then
+            obj:Destroy()
+        elseif obj:IsA("ParticleEmitter") or obj:IsA("Trail") or obj:IsA("Beam")
+            or obj:IsA("Fire") or obj:IsA("Smoke") or obj:IsA("Sparkles") or obj:IsA("Highlight") then
+            obj.Enabled = false
+        elseif obj:IsA("Decal") or obj:IsA("Texture") then
+            obj.Transparency = 1
+        elseif obj:IsA("TextLabel") or obj:IsA("Frame") or obj:IsA("ImageLabel") then
+            local n = obj.Name:lower()
+            if n:find("name") or n:find("health") or n:find("hp") or n:find("bar") or n:find("tag") then
+                obj.Visible = false
+                obj:Destroy()
+            end
+        end
+    end
+end
+
+local function restoreHideSelf(character)
+    if not character then return end
+    local humanoid = character:FindFirstChildOfClass("Humanoid")
+    if humanoid then
+        humanoid.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.Viewer
+        humanoid.NameDisplayDistance = 100
+        humanoid.HealthDisplayDistance = 100
+        humanoid.HealthDisplayType = Enum.HumanoidHealthDisplayType.AlwaysOn
+    end
+    for _, obj in ipairs(character:GetDescendants()) do
+        if obj:IsA("BasePart") then
+            obj.Transparency = 0
+            obj.Massless = false
+            if obj.Name == "HumanoidRootPart" then obj.Size = Vector3.new(2, 2, 1)
+            elseif obj.Name == "Head" then obj.Size = Vector3.new(2, 1, 1)
+            elseif obj.Name == "Torso" or obj.Name == "UpperTorso" then obj.Size = Vector3.new(2, 2, 1)
+            elseif obj.Name == "LowerTorso" then obj.Size = Vector3.new(2, 1, 1) end
+        end
+    end
+end
+
+-- ============ BƯỚC 3: CHỌN MỤC TIÊU ============
+local function getAlivePlayers()
+    local list = {}
+    local myChar = LocalPlayer.Character
+    if not myChar then return list end
+    local myHRP = myChar:FindFirstChild("HumanoidRootPart")
+    if not myHRP then return list end
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr ~= LocalPlayer and plr.Character then
+            local hum = plr.Character:FindFirstChildOfClass("Humanoid")
+            local hrp = plr.Character:FindFirstChild("HumanoidRootPart")
+            if hum and hrp and hum.Health > 0 then
+                table.insert(list, {Player = plr, Humanoid = hum, HRP = hrp})
+            end
+        end
+    end
+    return list
+end
+
+local function pickTarget()
+    local list = getAlivePlayers()
+    if #list == 0 then return nil end
+    local myHRP = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+    if not myHRP then return nil end
+    if State.LockMode == "Nearest" then
+        local best, bestDist = nil, math.huge
+        for _, e in ipairs(list) do
+            local d = (e.HRP.Position - myHRP.Position).Magnitude
+            if d < bestDist then best, bestDist = e, d end
+        end
+        return best
+    elseif State.LockMode == "LowestHP" then
+        local best = nil
+        for _, e in ipairs(list) do
+            if not best or e.Humanoid.Health < best.Humanoid.Health then best = e end
+        end
+        return best
+    elseif State.LockMode == "Random" then
+        return list[math.random(1, #list)]
+    end
+    return list[1]
+end
+
+-- ============ BƯỚC 4: HÀM XỬ LÝ CHÍNH (FIX HOẠT ĐỘNG) ============
+
+-- Đóng băng người chơi khác (client-side)
+local function freezePlayer(plr)
+    if not plr or plr == LocalPlayer or not plr.Character then return end
+    local hum = plr.Character:FindFirstChildOfClass("Humanoid")
+    if hum then
+        hum.WalkSpeed = 0
+        hum.JumpPower = 0
+        hum.PlatformStand = true
+        -- Xóa mọi BodyMover để không bị đẩy
+        for _, obj in ipairs(plr.Character:GetDescendants()) do
+            if obj:IsA("BodyMover") or obj:IsA("BodyVelocity") or obj:IsA("BodyGyro") or obj:IsA("BodyForce") then
+                obj:Destroy()
+            end
+        end
+    end
+end
+
+-- Đóng băng NPC
+local function freezeNPC(npc)
+    if not npc then return end
+    local hum = npc:FindFirstChildOfClass("Humanoid")
+    if hum then
+        hum.WalkSpeed = 0
+        hum.JumpPower = 0
+        hum.PlatformStand = true
+    end
+end
+
+-- Kill người chơi khác (client-side - có thể không hiệu quả nếu server bảo vệ)
+local function killPlayer(plr)
+    if not plr or plr == LocalPlayer or not plr.Character then return end
+    local hum = plr.Character:FindFirstChildOfClass("Humanoid")
+    if hum then hum.Health = 0 end
+end
+
+-- Fling người chơi (đẩy bay)
+local function flingPlayer(plr, power)
+    if not plr or plr == LocalPlayer or not plr.Character then return end
+    local hrp = plr.Character:FindFirstChild("HumanoidRootPart")
+    if hrp then
+        local old = hrp:FindFirstChild("GriefFling")
+        if old then old:Destroy() end
+        local bv = Instance.new("BodyVelocity")
+        bv.Name = "GriefFling"
+        bv.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
+        bv.Velocity = Vector3.new(
+            math.random(-power, power),
+            power,
+            math.random(-power, power)
+        )
+        bv.Parent = hrp
+    end
+end
+
+-- Tước vũ khí
+local function stripTools(plr)
+    if not plr or plr == LocalPlayer or not plr.Character then return end
+    for _, tool in ipairs(plr.Character:GetChildren()) do
+        if tool:IsA("Tool") then tool:Destroy() end
+    end
+    local backpack = plr:FindFirstChildOfClass("Backpack")
+    if backpack then
+        for _, tool in ipairs(backpack:GetChildren()) do
+            if tool:IsA("Tool") then tool:Destroy() end
+        end
+    end
+end
+
+-- Xóa phụ kiện
+local function removeAccessories(plr)
+    if not plr or plr == LocalPlayer or not plr.Character then return end
+    for _, acc in ipairs(plr.Character:GetChildren()) do
+        if acc:IsA("Accessory") or acc:IsA("Hat") then acc:Destroy() end
+    end
+end
+
+-- Đốt cháy
+local function burnPlayer(plr)
+    if not plr or plr == LocalPlayer or not plr.Character then return end
+    local hrp = plr.Character:FindFirstChild("HumanoidRootPart")
+    if hrp and not hrp:FindFirstChild("GriefFire") then
+        local f = Instance.new("Fire")
+        f.Name = "GriefFire"
+        f.Size = 15
+        f.Heat = 50
+        f.Parent = hrp
+    end
+end
+
+-- Làm mù
+local function blindPlayer(plr)
+    if not plr or plr == LocalPlayer or not plr.Character then return end
+    local head = plr.Character:FindFirstChild("Head")
+    if head and not head:FindFirstChild("GriefBlind") then
+        local sg = Instance.new("BillboardGui")
+        sg.Name = "GriefBlind"
+        sg.Size = UDim2.new(100, 0, 100, 0)
+        sg.AlwaysOnTop = true
+        sg.Adornee = head
+        sg.Parent = head
+        local f = Instance.new("Frame")
+        f.Size = UDim2.new(1, 0, 1, 0)
+        f.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+        f.BackgroundTransparency = 0.3
+        f.Parent = sg
+    end
+end
+
+-- ============ BƯỚC 5: TẠO UI ĐẸP ============
+local function createUI()
+    if CoreGui:FindFirstChild("PalofscMenu") then
+        CoreGui.PalofscMenu:Destroy()
+    end
+
+    local ScreenGui = Instance.new("ScreenGui")
+    ScreenGui.Name = "PalofscMenu"
+    ScreenGui.ResetOnSpawn = false
+    ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    ScreenGui.Parent = CoreGui
+
+    -- Khung chính với gradient
+    local Main = Instance.new("Frame")
+    Main.Name = "Main"
+    Main.Size = UDim2.new(0, 780, 0, 520)
+    Main.Position = UDim2.new(0.5, -390, 0.5, -260)
+    Main.BackgroundColor3 = Color3.fromRGB(15, 15, 25)
+    Main.BorderSizePixel = 0
+    Main.Active = true
+    Main.Draggable = true
+    Main.Parent = ScreenGui
+    Instance.new("UICorner", Main).CornerRadius = UDim.new(0, 12)
+
+    -- Viền gradient
+    local MainStroke = Instance.new("UIStroke")
+    MainStroke.Thickness = 2
+    MainStroke.Color = Color3.fromRGB(0, 200, 255)
+    MainStroke.Transparency = 0.3
+    MainStroke.Parent = Main
+
+    -- Gradient nền
+    local BgGradient = Instance.new("UIGradient")
+    BgGradient.Color = ColorSequence.new({
+        ColorSequenceKeypoint.new(0, Color3.fromRGB(20, 20, 35)),
+        ColorSequenceKeypoint.new(1, Color3.fromRGB(10, 10, 20)),
+    })
+    BgGradient.Rotation = 45
+    BgGradient.Parent = Main
+
+    -- Thanh tiêu đề đẹp
+    local TitleBar = Instance.new("Frame")
+    TitleBar.Name = "TitleBar"
+    TitleBar.Size = UDim2.new(1, 0, 0, 40)
+    TitleBar.BackgroundColor3 = Color3.fromRGB(25, 25, 40)
+    TitleBar.BorderSizePixel = 0
+    TitleBar.Parent = Main
+    local TitleCorner = Instance.new("UICorner")
+    TitleCorner.CornerRadius = UDim.new(0, 12)
+    TitleCorner.Parent = TitleBar
+
+    -- Che góc dưới của title bar
+    local TitleFix = Instance.new("Frame")
+    TitleFix.Size = UDim2.new(1, 0, 0, 12)
+    TitleFix.Position = UDim2.new(0, 0, 1, -12)
+    TitleFix.BackgroundColor3 = Color3.fromRGB(25, 25, 40)
+    TitleFix.BorderSizePixel = 0
+    TitleFix.Parent = TitleBar
+
+    local TitleGradient = Instance.new("UIGradient")
+    TitleGradient.Color = ColorSequence.new({
+        ColorSequenceKeypoint.new(0, Color3.fromRGB(0, 200, 255)),
+        ColorSequenceKeypoint.new(0.5, Color3.fromRGB(150, 50, 255)),
+        ColorSequenceKeypoint.new(1, Color3.fromRGB(255, 50, 150)),
+    })
+    TitleGradient.Parent = TitleBar
+
+    -- Icon
+    local Icon = Instance.new("TextLabel")
+    Icon.Size = UDim2.new(0, 36, 0, 36)
+    Icon.Position = UDim2.new(0, 8, 0, 2)
+    Icon.BackgroundTransparency = 1
+    Icon.Text = "⚡"
+    Icon.TextColor3 = Color3.fromRGB(255, 255, 255)
+    Icon.Font = Enum.Font.GothamBold
+    Icon.TextSize = 24
+    Icon.Parent = TitleBar
+
+    local Title = Instance.new("TextLabel")
+    Title.Size = UDim2.new(1, -120, 1, 0)
+    Title.Position = UDim2.new(0, 48, 0, 0)
+    Title.BackgroundTransparency = 1
+    Title.Text = "PALOFSC MENU v9 | PREMIUM"
+    Title.TextColor3 = Color3.fromRGB(255, 255, 255)
+    Title.TextXAlignment = Enum.TextXAlignment.Left
+    Title.Font = Enum.Font.GothamBold
+    Title.TextSize = 15
+    Title.Parent = TitleBar
+
+    -- Nút minimize
+    local MinimizeBtn = Instance.new("TextButton")
+    MinimizeBtn.Size = UDim2.new(0, 32, 0, 32)
+    MinimizeBtn.Position = UDim2.new(1, -74, 0, 4)
+    MinimizeBtn.BackgroundColor3 = Color3.fromRGB(255, 200, 0)
+    MinimizeBtn.Text = "—"
+    MinimizeBtn.TextColor3 = Color3.fromRGB(0, 0, 0)
+    MinimizeBtn.Font = Enum.Font.GothamBold
+    MinimizeBtn.TextSize = 16
+    MinimizeBtn.Parent = TitleBar
+    Instance.new("UICorner", MinimizeBtn).CornerRadius = UDim.new(0, 8)
+
+    -- Nút close
+    local CloseBtn = Instance.new("TextButton")
+    CloseBtn.Size = UDim2.new(0, 32, 0, 32)
+    CloseBtn.Position = UDim2.new(1, -38, 0, 4)
+    CloseBtn.BackgroundColor3 = Color3.fromRGB(255, 60, 60)
+    CloseBtn.Text = "X"
+    CloseBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    CloseBtn.Font = Enum.Font.GothamBold
+    CloseBtn.TextSize = 14
+    CloseBtn.Parent = TitleBar
+    Instance.new("UICorner", CloseBtn).CornerRadius = UDim.new(0, 8)
+
+    -- Thanh tab
+    local TabBar = Instance.new("Frame")
+    TabBar.Name = "TabBar"
+    TabBar.Size = UDim2.new(1, -16, 0, 34)
+    TabBar.Position = UDim2.new(0, 8, 0, 46)
+    TabBar.BackgroundColor3 = Color3.fromRGB(20, 20, 32)
+    TabBar.BorderSizePixel = 0
+    TabBar.Parent = Main
+    Instance.new("UICorner", TabBar).CornerRadius = UDim.new(0, 8)
+    local TabLayout = Instance.new("UIListLayout")
+    TabLayout.FillDirection = Enum.FillDirection.Horizontal
+    TabLayout.Padding = UDim.new(0, 4)
+    TabLayout.Parent = TabBar
+    local TabPadding = Instance.new("UIPadding")
+    TabPadding.PaddingLeft = UDim.new(0, 4)
+    TabPadding.PaddingTop = UDim.new(0, 3)
+    TabPadding.Parent = TabBar
+
+    -- Vùng nội dung
+    local Content = Instance.new("Frame")
+    Content.Name = "Content"
+    Content.Size = UDim2.new(1, -16, 1, -90)
+    Content.Position = UDim2.new(0, 8, 0, 84)
+    Content.BackgroundColor3 = Color3.fromRGB(18, 18, 28)
+    Content.BorderSizePixel = 0
+    Content.Parent = Main
+    Instance.new("UICorner", Content).CornerRadius = UDim.new(0, 8)
+    local ContentStroke = Instance.new("UIStroke")
+    ContentStroke.Thickness = 1
+    ContentStroke.Color = Color3.fromRGB(0, 200, 255)
+    ContentStroke.Transparency = 0.7
+    ContentStroke.Parent = Content
+
+    -- Tabs
+    local tabs = {}
+    local function createTab(name, icon)
+        local btn = Instance.new("TextButton")
+        btn.Size = UDim2.new(0, 82, 0, 28)
+        btn.BackgroundColor3 = Color3.fromRGB(30, 30, 45)
+        btn.Text = (icon or "") .. " " .. name
+        btn.TextColor3 = Color3.fromRGB(180, 180, 200)
+        btn.Font = Enum.Font.GothamBold
+        btn.TextSize = 11
+        btn.Parent = TabBar
+        Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 6)
+
+        local page = Instance.new("ScrollingFrame")
+        page.Size = UDim2.new(1, 0, 1, 0)
+        page.BackgroundTransparency = 1
+        page.BorderSizePixel = 0
+        page.ScrollBarThickness = 4
+        page.ScrollBarImageColor3 = Color3.fromRGB(0, 200, 255)
+        page.Visible = false
+        page.Parent = Content
+        local pLayout = Instance.new("UIListLayout")
+        pLayout.Padding = UDim.new(0, 5)
+        pLayout.Parent = page
+        local pPad = Instance.new("UIPadding")
+        pPad.PaddingTop = UDim.new(0, 8)
+        pPad.PaddingLeft = UDim.new(0, 8)
+        pPad.PaddingRight = UDim.new(0, 8)
+        pPad.Parent = page
+
+        btn.MouseButton1Click:Connect(function()
+            for _, p in pairs(Content:GetChildren()) do
+                if p:IsA("ScrollingFrame") then p.Visible = false end
+            end
+            page.Visible = true
+            for _, t in pairs(tabs) do
+                t.Button.BackgroundColor3 = Color3.fromRGB(30, 30, 45)
+                t.Button.TextColor3 = Color3.fromRGB(180, 180, 200)
+            end
+            btn.BackgroundColor3 = Color3.fromRGB(0, 150, 200)
+            btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+        end)
+
+        tabs[name] = { Button = btn, Page = page }
+        return page
+    end
+
+    -- Nút đẹp
+    local function createButton(parent, text, callback, color)
+        local btn = Instance.new("TextButton")
+        btn.Size = UDim2.new(1, 0, 0, 32)
+        btn.BackgroundColor3 = color or Color3.fromRGB(35, 35, 55)
+        btn.Text = text
+        btn.TextColor3 = Color3.fromRGB(230, 230, 240)
+        btn.Font = Enum.Font.Gotham
+        btn.TextSize = 12
+        btn.Parent = parent
+        Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 6)
+        btn.MouseEnter:Connect(function()
+            TweenService:Create(btn, TweenInfo.new(0.15), {
+                BackgroundColor3 = Color3.fromRGB(60, 60, 90)
+            }):Play()
+        end)
+        btn.MouseLeave:Connect(function()
+            TweenService:Create(btn, TweenInfo.new(0.15), {
+                BackgroundColor3 = color or Color3.fromRGB(35, 35, 55)
+            }):Play()
+        end)
+        btn.MouseButton1Click:Connect(function() pcall(callback) end)
+        return btn
+    end
+
+    -- Toggle đẹp
+    local function createToggle(parent, text, default, callback)
+        local state = default or false
+        local btn = Instance.new("TextButton")
+        btn.Size = UDim2.new(1, 0, 0, 32)
+        btn.BackgroundColor3 = state and Color3.fromRGB(0, 150, 100) or Color3.fromRGB(35, 35, 55)
+        btn.Text = text .. ": " .. (state and "✓ ON" or "✗ OFF")
+        btn.TextColor3 = Color3.fromRGB(230, 230, 240)
+        btn.Font = Enum.Font.Gotham
+        btn.TextSize = 12
+        btn.Parent = parent
+        Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 6)
+        btn.MouseButton1Click:Connect(function()
+            state = not state
+            btn.BackgroundColor3 = state and Color3.fromRGB(0, 150, 100) or Color3.fromRGB(35, 35, 55)
+            btn.Text = text .. ": " .. (state and "✓ ON" or "✗ OFF")
+            pcall(callback, state)
+        end)
+        return btn
+    end
+
+    -- Input đẹp
+    local function createInput(parent, labelText, default, callback)
+        local frame = Instance.new("Frame")
+        frame.Size = UDim2.new(1, 0, 0, 52)
+        frame.BackgroundColor3 = Color3.fromRGB(30, 30, 45)
+        frame.BorderSizePixel = 0
+        frame.Parent = parent
+        Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 6)
+        local lbl = Instance.new("TextLabel")
+        lbl.Size = UDim2.new(1, -12, 0, 20)
+        lbl.Position = UDim2.new(0, 6, 0, 2)
+        lbl.BackgroundTransparency = 1
+        lbl.Text = labelText
+        lbl.TextColor3 = Color3.fromRGB(180, 180, 200)
+        lbl.Font = Enum.Font.Gotham
+        lbl.TextSize = 11
+        lbl.TextXAlignment = Enum.TextXAlignment.Left
+        lbl.Parent = frame
+        local box = Instance.new("TextBox")
+        box.Size = UDim2.new(1, -76, 0, 24)
+        box.Position = UDim2.new(0, 6, 0, 24)
+        box.BackgroundColor3 = Color3.fromRGB(20, 20, 32)
+        box.Text = tostring(default)
+        box.TextColor3 = Color3.fromRGB(255, 255, 255)
+        box.Font = Enum.Font.Gotham
+        box.TextSize = 12
+        box.Parent = frame
+        Instance.new("UICorner", box).CornerRadius = UDim.new(0, 4)
+        local applyBtn = Instance.new("TextButton")
+        applyBtn.Size = UDim2.new(0, 64, 0, 24)
+        applyBtn.Position = UDim2.new(1, -70, 0, 24)
+        applyBtn.BackgroundColor3 = Color3.fromRGB(0, 150, 200)
+        applyBtn.Text = "Áp dụng"
+        applyBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+        applyBtn.Font = Enum.Font.GothamBold
+        applyBtn.TextSize = 11
+        applyBtn.Parent = frame
+        Instance.new("UICorner", applyBtn).CornerRadius = UDim.new(0, 4)
+        applyBtn.MouseButton1Click:Connect(function()
+            local num = tonumber(box.Text)
+            if num then pcall(callback, num) end
+        end)
+        return box
+    end
+
+    -- Tạo tabs
+    local playerTab = createTab("Player", "👤")
+    local lockTab = createTab("Lock", "🎯")
+    local visualTab = createTab("Visual", "👁")
+    local combatTab = createTab("Combat", "⚔")
+    local worldTab = createTab("World", "🌍")
+    local groupTab = createTab("Group", "👥")
+    local griefTab = createTab("Grief", "💀")
+    local otherTab = createTab("Others", "⚙")
+
+    -- ===== TAB PLAYER =====
+    local playerHeader = Instance.new("TextLabel")
+    playerHeader.Size = UDim2.new(1, 0, 0, 24)
+    playerHeader.BackgroundColor3 = Color3.fromRGB(0, 100, 150)
+    playerHeader.Text = "👤 CHỨC NĂNG BẢN THÂN"
+    playerHeader.TextColor3 = Color3.fromRGB(255, 255, 255)
+    playerHeader.Font = Enum.Font.GothamBold
+    playerHeader.TextSize = 12
+    playerHeader.Parent = playerTab
+    Instance.new("UICorner", playerHeader).CornerRadius = UDim.new(0, 6)
+
+    createToggle(playerTab, "Bất tử (God Mode)", false, function(v) State.GodMode = v end)
+    createToggle(playerTab, "Tàng hình toàn diện", false, function(v)
+        State.HideSelf = v
+        if LocalPlayer.Character then
+            if v then applyHideSelf(LocalPlayer.Character) else restoreHideSelf(LocalPlayer.Character) end
+        end
+    end)
+    createToggle(playerTab, "Noclip (xuyên vật thể)", false, function(v) State.Noclip = v end)
+    createToggle(playerTab, "Infinite Jump", false, function(v) State.InfiniteJump = v end)
+    createToggle(playerTab, "Anti Ragdoll", false, function(v) State.AntiRagdoll = v end)
+    createToggle(playerTab, "Auto Respawn", false, function(v) State.AutoRespawn = v end)
+    createToggle(playerTab, "Anti Void", false, function(v) State.AntiVoid = v end)
+    createToggle(playerTab, "Anti Fling", false, function(v) State.AntiFling = v end)
+    createToggle(playerTab, "No Gravity", false, function(v)
+        workspace.Gravity = v and 0 or 196.2
+    end)
+    createInput(playerTab, "Tốc độ chạy (WalkSpeed)", 100, function(v)
+        State.WalkspeedValue = v
+        local c = LocalPlayer.Character
+        if c and c:FindFirstChildOfClass("Humanoid") then c:FindFirstChildOfClass("Humanoid").WalkSpeed = v end
+    end)
+    createInput(playerTab, "Lực nhảy (JumpPower)", 200, function(v)
+        State.JumpValue = v
+        local c = LocalPlayer.Character
+        if c and c:FindFirstChildOfClass("Humanoid") then c:FindFirstChildOfClass("Humanoid").JumpPower = v end
+    end)
+    createButton(playerTab, "💚 Hồi máu đầy", function()
+        local c = LocalPlayer.Character
+        if c and c:FindFirstChildOfClass("Humanoid") then
+            c:FindFirstChildOfClass("Humanoid").Health = c:FindFirstChildOfClass("Humanoid").MaxHealth
+        end
+    end, Color3.fromRGB(0, 100, 50))
+    createButton(playerTab, "🔄 Reset tốc độ/nhảy", function()
+        local c = LocalPlayer.Character
+        if c and c:FindFirstChildOfClass("Humanoid") then
+            c:FindFirstChildOfClass("Humanoid").WalkSpeed = 16
+            c:FindFirstChildOfClass("Humanoid").JumpPower = 50
+        end
+    end, Color3.fromRGB(100, 60, 0))
+
+    -- ===== TAB LOCK =====
+    local lockHeader = Instance.new("TextLabel")
+    lockHeader.Size = UDim2.new(1, 0, 0, 24)
+    lockHeader.BackgroundColor3 = Color3.fromRGB(150, 50, 0)
+    lockHeader.Text = "🎯 AUTO LOCK SAU LƯNG"
+    lockHeader.TextColor3 = Color3.fromRGB(255, 255, 255)
+    lockHeader.Font = Enum.Font.GothamBold
+    lockHeader.TextSize = 12
+    lockHeader.Parent = lockTab
+    Instance.new("UICorner", lockHeader).CornerRadius = UDim.new(0, 6)
+
+    createToggle(lockTab, "Auto Lock sau lưng", false, function(v)
+        State.LockEnabled = v
+        if not v then State.CurrentTarget = nil end
+    end)
+    local modeLabel = Instance.new("TextLabel")
+    modeLabel.Size = UDim2.new(1, 0, 0, 26)
+    modeLabel.BackgroundColor3 = Color3.fromRGB(30, 30, 45)
+    modeLabel.Text = "Chế độ: Gần nhất | Dist: 3 | Smooth: 0.25"
+    modeLabel.TextColor3 = Color3.fromRGB(180, 180, 200)
+    modeLabel.Font = Enum.Font.Gotham
+    modeLabel.TextSize = 11
+    modeLabel.Parent = lockTab
+    Instance.new("UICorner", modeLabel).CornerRadius = UDim.new(0, 6)
+    local function refresh()
+        modeLabel.Text = string.format("Chế độ: %s | Dist: %.1f | Smooth: %.2f",
+            State.LockMode, State.LockOffset, State.LockSmooth)
+    end
+    createButton(lockTab, "🎯 Chọn: Gần nhất", function() State.LockMode = "Nearest"; State.CurrentTarget = nil; refresh() end)
+    createButton(lockTab, "💔 Chọn: Ít máu nhất", function() State.LockMode = "LowestHP"; State.CurrentTarget = nil; refresh() end)
+    createButton(lockTab, "🎲 Chọn: Ngẫu nhiên", function() State.LockMode = "Random"; State.CurrentTarget = nil; refresh() end)
+    createInput(lockTab, "Khoảng cách sau lưng (studs)", 3, function(v) State.LockOffset = math.clamp(v, 0.5, 30); refresh() end)
+    createInput(lockTab, "Chiều cao sau lưng (studs)", 1.5, function(v) State.LockHeight = math.clamp(v, -5, 10); refresh() end)
+    createButton(lockTab, "⚡ Mượt: 0.1 (nhanh)", function() State.LockSmooth = 0.1; refresh() end)
+    createButton(lockTab, "⚡ Mượt: 0.25 (cân bằng)", function() State.LockSmooth = 0.25; refresh() end)
+    createButton(lockTab, "⚡ Mượt: 0.5 (mượt)", function() State.LockSmooth = 0.5; refresh() end)
+    createButton(lockTab, "🎯 Đổi mục tiêu ngay", function() State.CurrentTarget = pickTarget() end, Color3.fromRGB(150, 50, 0))
+    createToggle(lockTab, "Camera Lock vào mục tiêu", false, function(v) State.CameraLock = v end)
+
+    -- ===== TAB VISUAL =====
+    local visualHeader = Instance.new("TextLabel")
+    visualHeader.Size = UDim2.new(1, 0, 0, 24)
+    visualHeader.BackgroundColor3 = Color3.fromRGB(100, 0, 150)
+    visualHeader.Text = "👁 ESP & VISUAL"
+    visualHeader.TextColor3 = Color3.fromRGB(255, 255, 255)
+    visualHeader.Font = Enum.Font.GothamBold
+    visualHeader.TextSize = 12
+    visualHeader.Parent = visualTab
+    Instance.new("UICorner", visualHeader).CornerRadius = UDim.new(0, 6)
+
+    createToggle(visualTab, "ESP Highlight", false, function(v) State.ESPEnabled = v end)
+    createToggle(visualTab, "ESP Tia (Tracer)", false, function(v) State.TracerEnabled = v end)
+    createToggle(visualTab, "NameTag (Tên + Máu)", false, function(v) State.NameTagEnabled = v end)
+    createToggle(visualTab, "Full Bright (sáng map)", false, function(v)
+        State.FullBright = v
+        if v then
+            State.OriginalLighting.Ambient = Lighting.Ambient
+            State.OriginalLighting.OutdoorAmbient = Lighting.OutdoorAmbient
+            State.OriginalLighting.Brightness = Lighting.Brightness
+            Lighting.Ambient = Color3.fromRGB(255, 255, 255)
+            Lighting.OutdoorAmbient = Color3.fromRGB(255, 255, 255)
+            Lighting.Brightness = 3
+            Lighting.GlobalShadows = false
+        else
+            if State.OriginalLighting.Ambient then
+                Lighting.Ambient = State.OriginalLighting.Ambient
+                Lighting.OutdoorAmbient = State.OriginalLighting.OutdoorAmbient
+                Lighting.Brightness = State.OriginalLighting.Brightness
+            end
+        end
+    end)
+    createButton(visualTab, "🔴 Tracer: Đỏ", function() State.TracerColor = Color3.fromRGB(255, 50, 50) end, Color3.fromRGB(120, 0, 0))
+    createButton(visualTab, "🟢 Tracer: Xanh lá", function() State.TracerColor = Color3.fromRGB(50, 255, 50) end, Color3.fromRGB(0, 120, 0))
+    createButton(visualTab, "🔵 Tracer: Xanh dương", function() State.TracerColor = Color3.fromRGB(50, 150, 255) end, Color3.fromRGB(0, 60, 120))
+    createButton(visualTab, "🟡 Tracer: Vàng", function() State.TracerColor = Color3.fromRGB(255, 255, 50) end, Color3.fromRGB(120, 120, 0))
+    createButton(visualTab, "🟣 Tracer: Tím", function() State.TracerColor = Color3.fromRGB(200, 50, 255) end, Color3.fromRGB(100, 0, 150))
+    createButton(visualTab, "📍 Tracer: Từ đáy màn hình", function() State.TracerFrom = "Bottom" end)
+    createButton(visualTab, "📍 Tracer: Từ tâm màn hình", function() State.TracerFrom = "Center" end)
+    createButton(visualTab, "📍 Tracer: Từ chuột", function() State.TracerFrom = "Mouse" end)
+    createInput(visualTab, "Độ dày Tracer (1-10)", 2, function(v) State.TracerThickness = math.clamp(v, 1, 10) end)
+
+    -- ===== TAB COMBAT =====
+    local combatHeader = Instance.new("TextLabel")
+    combatHeader.Size = UDim2.new(1, 0, 0, 24)
+    combatHeader.BackgroundColor3 = Color3.fromRGB(150, 0, 0)
+    combatHeader.Text = "⚔ CHIẾN ĐẤU"
+    combatHeader.TextColor3 = Color3.fromRGB(255, 255, 255)
+    combatHeader.Font = Enum.Font.GothamBold
+    combatHeader.TextSize = 12
+    combatHeader.Parent = combatTab
+    Instance.new("UICorner", combatHeader).CornerRadius = UDim.new(0, 6)
+
+    createToggle(combatTab, "Hitbox Expander", false, function(v) State.HitboxExpander = v end)
+    createInput(combatTab, "Kích thước Hitbox (1-30)", 5, function(v) State.HitboxSize = math.clamp(v, 1, 30) end)
+    createButton(combatTab, "💀 Kill mục tiêu Lock", function()
+        if State.CurrentTarget and State.CurrentTarget.Character then
+            local hum = State.CurrentTarget.Character:FindFirstChildOfClass("Humanoid")
+            if hum then hum.Health = 0 end
+        end
+    end, Color3.fromRGB(120, 0, 0))
+    createButton(combatTab, "💀 Kill tất cả NPC", function()
+        for _, obj in ipairs(workspace:GetDescendants()) do
+            if obj:IsA("Model") and obj:FindFirstChildOfClass("Humanoid") then
+                if not Players:GetPlayerFromCharacter(obj) then
+                    local hum = obj:FindFirstChildOfClass("Humanoid")
+                    if hum then hum.Health = 0 end
+                end
+            end
+        end
+    end, Color3.fromRGB(120, 0, 0))
+    createButton(combatTab, "💀 Kill tất cả người chơi khác", function()
+        for _, plr in ipairs(Players:GetPlayers()) do
+            if plr ~= LocalPlayer and plr.Character then
+                killPlayer(plr)
+            end
+        end
+    end, Color3.fromRGB(120, 0, 0))
+
+    -- ===== TAB WORLD =====
+    local worldHeader = Instance.new("TextLabel")
+    worldHeader.Size = UDim2.new(1, 0, 0, 24)
+    worldHeader.BackgroundColor3 = Color3.fromRGB(0, 100, 50)
+    worldHeader.Text = "🌍 THẾ GIỚI"
+    worldHeader.TextColor3 = Color3.fromRGB(255, 255, 255)
+    worldHeader.Font = Enum.Font.GothamBold
+    worldHeader.TextSize = 12
+    worldHeader.Parent = worldTab
+    Instance.new("UICorner", worldHeader).CornerRadius = UDim.new(0, 6)
+
+    createToggle(worldTab, "Đóng băng NPC (auto)", false, function(v)
+        State.FreezeNPC = v
+        if v then
+            for _, obj in ipairs(workspace:GetDescendants()) do
+                if obj:IsA("Model") and obj:FindFirstChildOfClass("Humanoid") then
+                    if not Players:GetPlayerFromCharacter(obj) then freezeNPC(obj) end
+                end
+            end
+        end
+    end)
+    createButton(worldTab, "❄ Đóng băng TẤT CẢ NPC", function()
+        for _, obj in ipairs(workspace:GetDescendants()) do
+            if obj:IsA("Model") and obj:FindFirstChildOfClass("Humanoid") then
+                if not Players:GetPlayerFromCharacter(obj) then freezeNPC(obj) end
+            end
+        end
+    end, Color3.fromRGB(0, 80, 120))
+    createButton(worldTab, "🔥 Bỏ đóng băng NPC", function()
+        for _, obj in ipairs(workspace:GetDescendants()) do
+            if obj:IsA("Model") and obj:FindFirstChildOfClass("Humanoid") then
+                if not Players:GetPlayerFromCharacter(obj) then
+                    local hum = obj:FindFirstChildOfClass("Humanoid")
+                    hum.WalkSpeed = 16
+                    hum.JumpPower = 50
+                    hum.PlatformStand = false
+                end
+            end
+        end
+    end, Color3.fromRGB(120, 60, 0))
+    createButton(worldTab, "🗑 Xóa map AN TOÀN (giữ người chơi)", function()
+        for _, obj in ipairs(workspace:GetDescendants()) do
+            if obj:IsA("BasePart") then
+                local isPlayerPart = false
+                for _, plr in ipairs(Players:GetPlayers()) do
+                    if plr.Character and obj:IsDescendantOf(plr.Character) then
+                        isPlayerPart = true
+                        break
+                    end
+                end
+                if not isPlayerPart then obj:Destroy() end
+            end
+        end
+    end, Color3.fromRGB(100, 50, 0))
+    createButton(worldTab, "⬆ Dịch chuyển map lên trời (Y=500)", function()
+        for _, obj in ipairs(workspace:GetDescendants()) do
+            if obj:IsA("BasePart") then
+                local isPlayerPart = false
+                for _, plr in ipairs(Players:GetPlayers()) do
+                    if plr.Character and obj:IsDescendantOf(plr.Character) then
+                        isPlayerPart = true
+                        break
+                    end
+                end
+                if not isPlayerPart then
+                    obj.CFrame = obj.CFrame + Vector3.new(0, 500, 0)
+                end
+            end
+        end
+    end, Color3.fromRGB(100, 50, 0))
+
+    -- ===== TAB GROUP =====
+    local groupHeader = Instance.new("TextLabel")
+    groupHeader.Size = UDim2.new(1, 0, 0, 24)
+    groupHeader.BackgroundColor3 = Color3.fromRGB(80, 80, 0)
+    groupHeader.Text = "👥 GỘP NGƯỜI CHƠI"
+    groupHeader.TextColor3 = Color3.fromRGB(255, 255, 255)
+    groupHeader.Font = Enum.Font.GothamBold
+    groupHeader.TextSize = 12
+    groupHeader.Parent = groupTab
+    Instance.new("UICorner", groupHeader).CornerRadius = UDim.new(0, 6)
+
+    createButton(groupTab, "📦 Gộp TẤT CẢ người chơi khác về 1 vị trí", function()
+        State.OriginalPositions = {}
+        local targetPos = Vector3.new(0, 50, 0)
+        if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
+            targetPos = LocalPlayer.Character.HumanoidRootPart.Position + Vector3.new(0, 5, 0)
+        end
+        for _, plr in ipairs(Players:GetPlayers()) do
+            if plr ~= LocalPlayer and plr.Character then
+                local hrp = plr.Character:FindFirstChild("HumanoidRootPart")
+                if hrp then
+                    State.OriginalPositions[plr] = hrp.CFrame
+                    hrp.CFrame = CFrame.new(targetPos)
+                end
+            end
+        end
+    end, Color3.fromRGB(80, 80, 0))
+    createButton(groupTab, "↩ Khôi phục vị trí gốc người chơi", function()
+        for plr, cf in pairs(State.OriginalPositions) do
+            if plr and plr.Character then
+                local hrp = plr.Character:FindFirstChild("HumanoidRootPart")
+                if hrp then hrp.CFrame = cf end
+            end
+        end
+        State.OriginalPositions = {}
+    end, Color3.fromRGB(60, 60, 0))
+    createButton(groupTab, "📦 Gộp + Đóng băng tất cả", function()
+        local targetPos = Vector3.new(0, 50, 0)
+        if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
+            targetPos = LocalPlayer.Character.HumanoidRootPart.Position + Vector3.new(0, 5, 0)
+        end
+        for _, plr in ipairs(Players:GetPlayers()) do
+            if plr ~= LocalPlayer and plr.Character then
+                local hrp = plr.Character:FindFirstChild("HumanoidRootPart")
+                if hrp then hrp.CFrame = CFrame.new(targetPos) end
+                freezePlayer(plr)
+            end
+        end
+    end, Color3.fromRGB(80, 80, 0))
+
+    -- ===== TAB GRIEF (CHỨC NĂNG ĐÃ FIX) =====
+    local griefHeader = Instance.new("TextLabel")
+    griefHeader.Size = UDim2.new(1, 0, 0, 24)
+    griefHeader.BackgroundColor3 = Color3.fromRGB(150, 0, 50)
+    griefHeader.Text = "💀 GRIEF - CHỨC NĂNG PHÁ SERVER"
+    griefHeader.TextColor3 = Color3.fromRGB(255, 255, 255)
+    griefHeader.Font = Enum.Font.GothamBold
+    griefHeader.TextSize = 12
+    griefHeader.Parent = griefTab
+    Instance.new("UICorner", griefHeader).CornerRadius = UDim.new(0, 6)
+
+    local griefNote = Instance.new("TextLabel")
+    griefNote.Size = UDim2.new(1, 0, 0, 30)
+    griefNote.BackgroundColor3 = Color3.fromRGB(80, 20, 20)
+    griefNote.Text = "⚠ Các chức năng hoạt động CLIENT-SIDE - ảnh hưởng mạnh tới người chơi khác"
+    griefNote.TextColor3 = Color3.fromRGB(255, 150, 150)
+    griefNote.Font = Enum.Font.Gotham
+    griefNote.TextSize = 10
+    griefNote.TextWrapped = true
+    griefNote.Parent = griefTab
+    Instance.new("UICorner", griefNote).CornerRadius = UDim.new(0, 6)
+
+    -- ĐÓNG BĂNG (FIX)
+    createToggle(griefTab, "❄ [1] Đóng băng TẤT CẢ người chơi khác", false, function(v)
+        State.FreezeAll = v
+        if v then
+            for _, plr in ipairs(Players:GetPlayers()) do
+                if plr ~= LocalPlayer then freezePlayer(plr) end
+            end
+        end
+    end)
+    createButton(griefTab, "❄ Đóng băng ngay TẤT CẢ", function()
+        for _, plr in ipairs(Players:GetPlayers()) do
+            if plr ~= LocalPlayer then freezePlayer(plr) end
+        end
+    end, Color3.fromRGB(0, 80, 120))
+    createButton(griefTab, "🔥 Bỏ đóng băng TẤT CẢ", function()
+        State.FreezeAll = false
+        for _, plr in ipairs(Players:GetPlayers()) do
+            if plr ~= LocalPlayer and plr.Character then
+                local hum = plr.Character:FindFirstChildOfClass("Humanoid")
+                if hum then
+                    hum.WalkSpeed = 16
+                    hum.JumpPower = 50
+                    hum.PlatformStand = false
+                end
+            end
+        end
+    end, Color3.fromRGB(120, 60, 0))
+
+    -- FLING
+    createToggle(griefTab, "💨 [2] Fling (đẩy bay) ALL", false, function(v) State.AutoFlingAll = v end)
+    createInput(griefTab, "Lực Fling", 1000, function(v) State.AutoFlingPower = v end)
+
+    -- KILL
+    createToggle(griefTab, "💀 [3] Auto Kill ALL", false, function(v) State.AutoKillAll = v end)
+
+    -- SPAM PART (LAG)
+    createToggle(griefTab, "🌀 [4] Auto Lag ALL (spam part)", false, function(v) State.AutoLagAll = v end)
+
+    -- SPIN
+    createToggle(griefTab, "🔄 [5] Auto Spin ALL (xoay người khác)", false, function(v) State.AutoSpinAll = v end)
+
+    -- TELEPORT
+    createToggle(griefTab, "⬆ [6] Auto Teleport ALL lên trời", false, function(v) State.AutoTeleportAll = v end)
+
+    -- STRIP TOOLS
+    createToggle(griefTab, "🔫 [7] Auto Tước vũ khí ALL", false, function(v) State.AutoStripTools = v end)
+
+    -- REMOVE ACCESSORIES
+    createToggle(griefTab, "🎩 [8] Auto Xóa phụ kiện ALL", false, function(v) State.AutoRemoveAccessories = v end)
+
+    -- DAMAGE
+    createToggle(griefTab, "💔 [9] Auto Damage ALL", false, function(v) State.AutoDamageAll = v end)
+    createInput(griefTab, "Sát thương/lần", 5, function(v) State.DamageAmount = v end)
+
+    -- BURN
+    createToggle(griefTab, "🔥 [10] Auto Đốt cháy ALL", false, function(v) State.AutoBurnAll = v end)
+
+    -- INVISIBLE OTHERS
+    createToggle(griefTab, "👻 [11] Auto Tàng hình người khác", false, function(v) State.AutoInvisibleOthers = v end)
+
+    -- SLOW
+    createToggle(griefTab, "🐌 [12] Auto Slow ALL", false, function(v) State.AutoSlowAll = v end)
+    createInput(griefTab, "Giá trị Slow", 2, function(v) State.SlowValue = v end)
+
+    -- VOID
+    createToggle(griefTab, "⬇ [13] Auto Void ALL (ném xuống âm)", false, function(v) State.AutoVoidAll = v end)
+
+    -- SIZE
+    createToggle(griefTab, "🔍 [14] Auto Size ALL (phóng to)", false, function(v) State.AutoSizeAll = v end)
+    createInput(griefTab, "Kích thước Size", 10, function(v) State.SizeValue = v end)
+
+    -- TRANSPARENCY
+    createToggle(griefTab, "💨 [15] Auto Transparency ALL (mờ)", false, function(v) State.AutoTransparencyAll = v end)
+
+    -- COLOR
+    createToggle(griefTab, "🎨 [16] Auto Color ALL (sơn đỏ)", false, function(v) State.AutoColorAll = v end)
+
+    -- GRAVITY
+    createToggle(griefTab, "🌌 [17] Auto Gravity ALL (đổi trọng lực)", false, function(v) State.AutoGravityAll = v end)
+    createInput(griefTab, "Trọng lực", 0, function(v) State.GravityValue = v end)
+
+    -- SPEED
+    createToggle(griefTab, "⚡ [18] Auto Speed ALL (chạy nhanh)", false, function(v) State.AutoSpeedAll = v end)
+    createInput(griefTab, "Speed ALL", 500, function(v) State.SpeedValueAll = v end)
+
+    -- HEALTH
+    createToggle(griefTab, "❤ [19] Auto Health ALL = 1", false, function(v) State.AutoHealthAll = v end)
+    createInput(griefTab, "Máu ALL", 1, function(v) State.HealthValueAll = v end)
+
+    -- NOCLIP
+    createToggle(griefTab, "👻 [20] Auto NoClip ALL", false, function(v) State.AutoNoClipAll = v end)
+
+    -- ANCHOR
+    createToggle(griefTab, "📌 [21] Auto Anchor ALL (dán cứng)", false, function(v) State.AutoAnchorAll = v end)
+
+    -- SIT
+    createToggle(griefTab, "🪑 [22] Auto Sit ALL", false, function(v) State.AutoSitAll = v end)
+
+    -- DANCE
+    createToggle(griefTab, "💃 [23] Auto Dance ALL", false, function(v) State.AutoDanceAll = v end)
+
+    -- AUTO NGÃ LIÊN TỤC
+    createToggle(griefTab, "🔥 [24] AUTO NGÃ LIÊN TỤC ALL", false, function(v) State.AutoRagdollLoopAll = v end)
+    createInput(griefTab, "Tốc độ ngã (giây)", 0.1, function(v) State.RagdollInterval = math.clamp(v, 0.03, 1) end)
+
+    -- Nút tổng hợp
+    createButton(griefTab, "💀 KÍCH HOẠT TẤT CẢ GRIEF", function()
+        State.FreezeAll = true
+        State.AutoFlingAll = true
+        State.AutoKillAll = true
+        State.AutoLagAll = true
+        State.AutoSpinAll = true
+        State.AutoTeleportAll = true
+        State.AutoStripTools = true
+        State.AutoRemoveAccessories = true
+        State.AutoDamageAll = true
+        State.AutoBurnAll = true
+        State.AutoInvisibleOthers = true
+        State.AutoSlowAll = true
+        State.AutoVoidAll = true
+        State.AutoSizeAll = true
+        State.AutoTransparencyAll = true
+        State.AutoColorAll = true
+        State.AutoSpeedAll = true
+        State.AutoHealthAll = true
+        State.AutoNoClipAll = true
+        State.AutoAnchorAll = true
+        State.AutoSitAll = true
+        State.AutoDanceAll = true
+        State.AutoRagdollLoopAll = true
+        for _, plr in ipairs(Players:GetPlayers()) do
+            if plr ~= LocalPlayer then freezePlayer(plr) end
+        end
+    end, Color3.fromRGB(200, 0, 0))
+    createButton(griefTab, "☠ TẮT TẤT CẢ GRIEF", function()
+        State.FreezeAll = false
+        State.AutoFlingAll = false
+        State.AutoKillAll = false
+        State.AutoLagAll = false
+        State.AutoSpinAll = false
+        State.AutoTeleportAll = false
+        State.AutoStripTools = false
+        State.AutoRemoveAccessories = false
+        State.AutoDamageAll = false
+        State.AutoBurnAll = false
+        State.AutoInvisibleOthers = false
+        State.AutoSlowAll = false
+        State.AutoVoidAll = false
+        State.AutoSizeAll = false
+        State.AutoTransparencyAll = false
+        State.AutoColorAll = false
+        State.AutoSpeedAll = false
+        State.AutoHealthAll = false
+        State.AutoNoClipAll = false
+        State.AutoAnchorAll = false
+        State.AutoSitAll = false
+        State.AutoDanceAll = false
+        State.AutoRagdollLoopAll = false
+    end, Color3.fromRGB(60, 60, 60))
+
+    -- ===== TAB OTHERS =====
+    local otherHeader = Instance.new("TextLabel")
+    otherHeader.Size = UDim2.new(1, 0, 0, 24)
+    otherHeader.BackgroundColor3 = Color3.fromRGB(50, 50, 80)
+    otherHeader.Text = "⚙ KHÁC"
+    otherHeader.TextColor3 = Color3.fromRGB(255, 255, 255)
+    otherHeader.Font = Enum.Font.GothamBold
+    otherHeader.TextSize = 12
+    otherHeader.Parent = otherTab
+    Instance.new("UICorner", otherHeader).CornerRadius = UDim.new(0, 6)
+
+    createToggle(otherTab, "Click Teleport (chuột phải)", false, function(v) State.ClickTP = v end)
+    createToggle(otherTab, "Fly (bay)", false, function(v) State.FlyEnabled = v end)
+    createInput(otherTab, "Tốc độ Fly", 50, function(v) State.FlySpeed = v end)
+    createButton(otherTab, "📍 Teleport tới mục tiêu Lock", function()
+        if State.CurrentTarget and State.CurrentTarget.Character and LocalPlayer.Character then
+            local tHRP = State.CurrentTarget.Character:FindFirstChild("HumanoidRootPart")
+            local myHRP = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+            if tHRP and myHRP then myHRP.CFrame = tHRP.CFrame + Vector3.new(0, 3, 0) end
+        end
+    end)
+    createButton(otherTab, "⬆ Teleport lên trời (Y=500)", function()
+        local c = LocalPlayer.Character
+        local hrp = c and c:FindFirstChild("HumanoidRootPart")
+        if hrp then hrp.CFrame = CFrame.new(hrp.Position + Vector3.new(0, 500, 0)) end
+    end)
+
+    -- ===== MINI MENU 💗🔥 =====
+    local MiniMenu = Instance.new("Frame")
+    MiniMenu.Name = "MiniMenu"
+    MiniMenu.Size = UDim2.new(0, 110, 0, 44)
+    MiniMenu.Position = UDim2.new(0, 20, 0.5, -22)
+    MiniMenu.BackgroundColor3 = Color3.fromRGB(20, 20, 30)
+    MiniMenu.BorderSizePixel = 0
+    MiniMenu.Active = true
+    MiniMenu.Draggable = true
+    MiniMenu.Visible = false
+    MiniMenu.Parent = ScreenGui
+    Instance.new("UICorner", MiniMenu).CornerRadius = UDim.new(0, 22)
+    local MiniGradient = Instance.new("UIGradient")
+    MiniGradient.Color = ColorSequence.new({
+        ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 105, 180)),
+        ColorSequenceKeypoint.new(1, Color3.fromRGB(255, 140, 0)),
+    })
+    MiniGradient.Parent = MiniMenu
+    local MiniStroke = Instance.new("UIStroke")
+    MiniStroke.Thickness = 2
+    MiniStroke.Color = Color3.fromRGB(255, 200, 100)
+    MiniStroke.Parent = MiniMenu
+
+    local MiniLabel = Instance.new("TextLabel")
+    MiniLabel.Size = UDim2.new(0, 60, 1, 0)
+    MiniLabel.Position = UDim2.new(0, 8, 0, 0)
+    MiniLabel.BackgroundTransparency = 1
+    MiniLabel.Text = "💗🔥"
+    MiniLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+    MiniLabel.Font = Enum.Font.GothamBold
+    MiniLabel.TextSize = 22
+    MiniLabel.Parent = MiniMenu
+
+    local RestoreBtn = Instance.new("TextButton")
+    RestoreBtn.Size = UDim2.new(0, 32, 0, 32)
+    RestoreBtn.Position = UDim2.new(1, -38, 0, 6)
+    RestoreBtn.BackgroundColor3 = Color3.fromRGB(0, 150, 100)
+    RestoreBtn.Text = "▲"
+    RestoreBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    RestoreBtn.Font = Enum.Font.GothamBold
+    RestoreBtn.TextSize = 14
+    RestoreBtn.Parent = MiniMenu
+    Instance.new("UICorner", RestoreBtn).CornerRadius = UDim.new(0, 8)
+
+    task.spawn(function()
+        while MiniMenu.Parent do
+            task.wait(0.6)
+            if MiniMenu.Visible then
+                TweenService:Create(MiniMenu, TweenInfo.new(0.3, Enum.EasingStyle.Sine), {
+                    Size = UDim2.new(0, 120, 0, 48)
+                }):Play()
+                task.wait(0.3)
+                TweenService:Create(MiniMenu, TweenInfo.new(0.3, Enum.EasingStyle.Sine), {
+                    Size = UDim2.new(0, 110, 0, 44)
+                }):Play()
+                MiniLabel.Text = (MiniLabel.Text == "💗🔥") and "🔥💗" or "💗🔥"
+            end
+        end
+    end)
+
+    MinimizeBtn.MouseButton1Click:Connect(function() Main.Visible = false; MiniMenu.Visible = true end)
+    RestoreBtn.MouseButton1Click:Connect(function() Main.Visible = true; MiniMenu.Visible = false end)
+    CloseBtn.MouseButton1Click:Connect(function() ScreenGui:Destroy() end)
+
+    tabs["Player"].Button.BackgroundColor3 = Color3.fromRGB(0, 150, 200)
+    tabs["Player"].Button.TextColor3 = Color3.fromRGB(255, 255, 255)
+    tabs["Player"].Page.Visible = true
+
+    return ScreenGui
+end
+
+-- ============ BƯỚC 6: VÒNG LẶP XỬ LÝ CHÍNH ============
+createUI()
+
+-- God Mode + Hide + AutoRespawn + AntiRagdoll + AntiFling
+task.spawn(function()
+    while task.wait(0.2) do
+        local char = LocalPlayer.Character
+        if char then
+            local hum = char:FindFirstChildOfClass("Humanoid")
+            if hum then
+                if State.GodMode then
+                    hum.MaxHealth = math.huge
+                    hum.Health = math.huge
+                end
+                if State.AutoRespawn and hum.Health <= 0 then
+                    LocalPlayer:LoadCharacter()
+                end
+                if State.AntiRagdoll then
+                    hum.PlatformStand = false
+                    hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
+                    hum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
+                end
+            end
+            if State.HideSelf then applyHideSelf(char) end
+            if State.AntiFling then
+                local hrp = char:FindFirstChild("HumanoidRootPart")
+                if hrp then
+                    local vel = hrp:FindFirstChildOfClass("BodyVelocity")
+                    if vel and vel.Velocity.Magnitude > 500 then vel:Destroy() end
+                end
+            end
+        end
+    end
+end)
+
+-- Noclip
+task.spawn(function()
+    while task.wait(0.1) do
+        if State.Noclip and LocalPlayer.Character then
+            for _, part in ipairs(LocalPlayer.Character:GetDescendants()) do
+                if part:IsA("BasePart") then part.CanCollide = false end
+            end
+        end
+    end
+end)
+
+-- Anti Void
+task.spawn(function()
+    while task.wait(0.3) do
+        if State.AntiVoid and LocalPlayer.Character then
+            local hrp = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+            if hrp and hrp.Position.Y < -50 then
+                hrp.CFrame = CFrame.new(0, 50, 0)
+            end
+        end
+    end
+end)
+
+-- Infinite Jump
+UserInputService.JumpRequest:Connect(function()
+    if State.InfiniteJump and LocalPlayer.Character then
+        local hum = LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+        if hum then hum:ChangeState(Enum.HumanoidStateType.Jumping) end
+    end
+end)
+
+-- Click TP
+UserInputService.InputBegan:Connect(function(input, gp)
+    if gp then return end
+    if State.ClickTP and input.UserInputType == Enum.UserInputType.MouseButton2 then
+        local mouse = LocalPlayer:GetMouse()
+        if mouse.Hit and LocalPlayer.Character then
+            local hrp = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+            if hrp then hrp.CFrame = CFrame.new(mouse.Hit.Position + Vector3.new(0, 3, 0)) end
+        end
+    end
+end)
+
+-- Fly
+task.spawn(function()
+    local bodyVel, bodyGyro, flyConn
+    while task.wait(0.1) do
+        if State.FlyEnabled and LocalPlayer.Character then
+            local hrp = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+            if hrp and not bodyVel then
+                bodyVel = Instance.new("BodyVelocity")
+                bodyVel.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
+                bodyVel.Velocity = Vector3.zero
+                bodyVel.Parent = hrp
+                bodyGyro = Instance.new("BodyGyro")
+                bodyGyro.MaxTorque = Vector3.new(math.huge, math.huge, math.huge)
+                bodyGyro.P = 1000
+                bodyGyro.Parent = hrp
+                flyConn = RunService.RenderStepped:Connect(function()
+                    if not State.FlyEnabled then return end
+                    local cam = workspace.CurrentCamera
+                    local move = Vector3.zero
+                    if UserInputService:IsKeyDown(Enum.KeyCode.W) then move += cam.CFrame.LookVector end
+                    if UserInputService:IsKeyDown(Enum.KeyCode.S) then move -= cam.CFrame.LookVector end
+                    if UserInputService:IsKeyDown(Enum.KeyCode.A) then move -= cam.CFrame.RightVector end
+                    if UserInputService:IsKeyDown(Enum.KeyCode.D) then move += cam.CFrame.RightVector end
+                    if UserInputService:IsKeyDown(Enum.KeyCode.Space) then move += Vector3.new(0, 1, 0) end
+                    if UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) then move -= Vector3.new(0, 1, 0) end
+                    bodyVel.Velocity = move * State.FlySpeed
+                    bodyGyro.CFrame = cam.CFrame
+                end)
+            end
+        else
+            if bodyVel then bodyVel:Destroy(); bodyVel = nil end
+            if bodyGyro then bodyGyro:Destroy(); bodyGyro = nil end
+            if flyConn then flyConn:Disconnect(); flyConn = nil end
+        end
+    end
+end)
+
+-- ESP + Tracer + NameTag + Hitbox
+task.spawn(function()
+    while task.wait(0.1) do
+        -- ESP
+        if State.ESPEnabled then
+            for _, plr in ipairs(Players:GetPlayers()) do
+                if plr ~= LocalPlayer and plr.Character then
+                    if not State.ESPObjects[plr] or not State.ESPObjects[plr].Parent then
+                        local hl = Instance.new("Highlight")
+                        hl.Name = "PalofscESP"
+                        hl.FillColor = Color3.fromRGB(255, 50, 50)
+                        hl.OutlineColor = Color3.fromRGB(255, 255, 255)
+                        hl.FillTransparency = 0.5
+                        hl.OutlineTransparency = 0
+                        hl.Adornee = plr.Character
+                        hl.Parent = plr.Character
+                        State.ESPObjects[plr] = hl
+                    end
+                end
+            end
+        else
+            for _, obj in pairs(State.ESPObjects) do
+                if obj and obj.Parent then obj:Destroy() end
+            end
+            State.ESPObjects = {}
+        end
+
+        -- Tracer
+        if State.TracerEnabled then
+            local camera = workspace.CurrentCamera
+            for _, plr in ipairs(Players:GetPlayers()) do
+                if plr ~= LocalPlayer and plr.Character then
+                    local head = plr.Character:FindFirstChild("Head")
+                    if head then
+                        if not State.TracerObjects[plr] or not State.TracerObjects[plr].Parent then
+                            local line = Instance.new("LineHandleAdornment")
+                            line.Name = "PalofscTracer"
+                            line.Color3 = State.TracerColor
+                            line.Thickness = State.TracerThickness
+                            line.AlwaysOnTop = true
+                            line.Adornee = head
+                            line.Length = 0
+                            line.Parent = head
+                            State.TracerObjects[plr] = line
+                        end
+                        local line = State.TracerObjects[plr]
+                        line.Color3 = State.TracerColor
+                        line.Thickness = State.TracerThickness
+                        local ray = camera:ScreenPointToRay(camera.ViewportSize.X / 2, camera.ViewportSize.Y)
+                        local endPos = head.Position
+                        line.CFrame = CFrame.new(endPos, endPos + (endPos - ray.Origin).Unit * 100)
+                    end
+                end
+            end
+        else
+            for _, obj in pairs(State.TracerObjects) do
+                if obj and obj.Parent then obj:Destroy() end
+            end
+            State.TracerObjects = {}
+        end
+
+        -- NameTag
+        if State.NameTagEnabled then
+            for _, plr in ipairs(Players:GetPlayers()) do
+                if plr ~= LocalPlayer and plr.Character then
+                    local head = plr.Character:FindFirstChild("Head")
+                    local hum = plr.Character:FindFirstChildOfClass("Humanoid")
+                    if head and hum then
+                        if not State.NameTagObjects[plr] or not State.NameTagObjects[plr].Parent then
+                            local bg = Instance.new("BillboardGui")
+                            bg.Name = "PalofscNameTag"
+                            bg.Size = UDim2.new(0, 200, 0, 50)
+                            bg.StudsOffset = Vector3.new(0, 3, 0)
+                            bg.AlwaysOnTop = true
+                            bg.Adornee = head
+                            bg.Parent = head
+                            local label = Instance.new("TextLabel")
+                            label.Size = UDim2.new(1, 0, 1, 0)
+                            label.BackgroundTransparency = 1
+                            label.TextColor3 = Color3.fromRGB(255, 255, 255)
+                            label.TextStrokeTransparency = 0
+                            label.Font = Enum.Font.GothamBold
+                            label.TextSize = 14
+                            label.Text = plr.Name .. " [" .. math.floor(hum.Health) .. "]"
+                            label.Parent = bg
+                            State.NameTagObjects[plr] = bg
+                        else
+                            local bg = State.NameTagObjects[plr]
+                            local label = bg:FindFirstChildOfClass("TextLabel")
+                            if label then
+                                label.Text = plr.Name .. " [" .. math.floor(hum.Health) .. "]"
+                            end
+                        end
+                    end
+                end
+            end
+        else
+            for _, obj in pairs(State.NameTagObjects) do
+                if obj and obj.Parent then obj:Destroy() end
+            end
+            State.NameTagObjects = {}
+        end
+
+        -- Hitbox Expander
+        if State.HitboxExpander then
+            for _, plr in ipairs(Players:GetPlayers()) do
+                if plr ~= LocalPlayer and plr.Character then
+                    local hrp = plr.Character:FindFirstChild("HumanoidRootPart")
+                    if hrp then
+                        hrp.Size = Vector3.new(State.HitboxSize, State.HitboxSize, State.HitboxSize)
+                        hrp.Transparency = 0.7
+                        hrp.CanCollide = false
+                    end
+                end
+            end
+        end
+    end
+end)
+
+-- Freeze NPC loop
+task.spawn(function()
+    while task.wait(0.3) do
+        if State.FreezeNPC then
+            for _, obj in ipairs(workspace:GetDescendants()) do
+                if obj:IsA("Model") and obj:FindFirstChildOfClass("Humanoid") then
+                    if not Players:GetPlayerFromCharacter(obj) then freezeNPC(obj) end
+                end
+            end
+        end
+    end
+end)
+
+-- ============ GRIEF LOOP ============
+task.spawn(function()
+    while task.wait(0.15) do
+        for _, plr in ipairs(Players:GetPlayers()) do
+            if plr ~= LocalPlayer and plr.Character then
+                local char = plr.Character
+                local hum = char:FindFirstChildOfClass("Humanoid")
+                local hrp = char:FindFirstChild("HumanoidRootPart")
+
+                -- Freeze
+                if State.FreezeAll then freezePlayer(plr) end
+
+                -- Fling
+                if State.AutoFlingAll then flingPlayer(plr, State.AutoFlingPower) end
+
+                -- Kill
+                if State.AutoKillAll and hum then hum.Health = 0 end
+
+                -- Lag (spam part)
+                if State.AutoLagAll and hrp then
+                    for i = 1, 20 do
+                        local p = Instance.new("Part")
+                        p.Size = Vector3.new(20, 20, 20)
+                        p.Position = hrp.Position
+                        p.Anchored = false
+                        p.CanCollide = false
+                        p.Transparency = 1
+                        p.Parent = workspace
+                        task.delay(0.5, function() p:Destroy() end)
+                    end
+                end
+
+                -- Spin
+                if State.AutoSpinAll and hrp then
+                    hrp.CFrame = hrp.CFrame * CFrame.Angles(0, math.rad(50), 0)
+                end
+
+                -- Teleport lên trời
+                if State.AutoTeleportAll and hrp then
+                    hrp.CFrame = CFrame.new(hrp.Position.X, 500, hrp.Position.Z)
+                end
+
+                -- Strip tools
+                if State.AutoStripTools then stripTools(plr) end
+
+                -- Remove accessories
+                if State.AutoRemoveAccessories then removeAccessories(plr) end
+
+                -- Damage
+                if State.AutoDamageAll and hum and hum.Health > 0 then
+                    hum.Health = math.max(0, hum.Health - State.DamageAmount)
+                end
+
+                -- Burn
+                if State.AutoBurnAll then burnPlayer(plr) end
+
+                -- Invisible others
+                if State.AutoInvisibleOthers then
+                    for _, part in ipairs(char:GetDescendants()) do
+                        if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
+                            part.Transparency = 1
+                        end
+                    end
+                end
+
+                -- Slow
+                if State.AutoSlowAll and hum then hum.WalkSpeed = State.SlowValue end
+
+                -- Void
+                if State.AutoVoidAll and hrp then
+                    hrp.CFrame = CFrame.new(hrp.Position.X, -500, hrp.Position.Z)
+                end
+
+                -- Size
+                if State.AutoSizeAll then
+                    for _, part in ipairs(char:GetDescendants()) do
+                        if part:IsA("BasePart") then
+                            part.Size = Vector3.new(State.SizeValue, State.SizeValue, State.SizeValue)
+                        end
+                    end
+                end
+
+                -- Transparency
+                if State.AutoTransparencyAll then
+                    for _, part in ipairs(char:GetDescendants()) do
+                        if part:IsA("BasePart") then part.Transparency = 0.7 end
+                    end
+                end
+
+                -- Color
+                if State.AutoColorAll then
+                    for _, part in ipairs(char:GetDescendants()) do
+                        if part:IsA("BasePart") then part.Color = Color3.fromRGB(255, 0, 0) end
+                    end
+                end
+
+                -- Gravity (BodyForce)
+                if State.AutoGravityAll and hrp then
+                    if not hrp:FindFirstChild("GriefGravity") then
+                        local bf = Instance.new("BodyForce")
+                        bf.Name = "GriefGravity"
+                        bf.Force = Vector3.new(0, State.GravityValue * 1000, 0)
+                        bf.Parent = hrp
+                    end
+                end
+
+                -- Speed
+                if State.AutoSpeedAll and hum then hum.WalkSpeed = State.SpeedValueAll end
+
+                -- Health
+                if State.AutoHealthAll and hum then hum.Health = State.HealthValueAll end
+
+                -- NoClip
+                if State.AutoNoClipAll then
+                    for _, part in ipairs(char:GetDescendants()) do
+                        if part:IsA("BasePart") then part.CanCollide = false end
+                    end
+                end
+
+                -- Anchor
+                if State.AutoAnchorAll and hrp then hrp.Anchored = true end
+
+                -- Sit
+                if State.AutoSitAll and hum then hum.Sit = true end
+
+                -- Dance
+                if State.AutoDanceAll and hum then
+                    local animator = hum:FindFirstChildOfClass("Animator")
+                    if animator and not char:FindFirstChild("GriefDance") then
+                        local danceAnim = Instance.new("Animation")
+                        danceAnim.AnimationId = "rbxassetid://507771019"
+                        local track = animator:LoadAnimation(danceAnim)
+                        track:Play()
+                        local marker = Instance.new("BoolValue")
+                        marker.Name = "GriefDance"
+                        marker.Parent = char
+                    end
+                end
+
+                -- Auto ngã liên tục
+                if State.AutoRagdollLoopAll and hum then
+                    hum.PlatformStand = true
+                    hum:ChangeState(Enum.HumanoidStateType.FallingDown)
+                end
+            end
+        end
+    end
+end)
+
+-- Ragdoll loop riêng cho tốc độ nhanh hơn
+task.spawn(function()
+    while task.wait(State.RagdollInterval or 0.1) do
+        if State.AutoRagdollLoopAll then
+            for _, plr in ipairs(Players:GetPlayers()) do
+                if plr ~= LocalPlayer and plr.Character then
+                    local hum = plr.Character:FindFirstChildOfClass("Humanoid")
+                    if hum then
+                        hum.PlatformStand = true
+                        hum:ChangeState(Enum.HumanoidStateType.FallingDown)
+                        task.wait(0.03)
+                        hum.PlatformStand = false
+                        hum:ChangeState(Enum.HumanoidStateType.GettingUp)
+                    end
+                end
+            end
+        end
+    end
+end)
+
+-- ============ BƯỚC 7: AUTO LOCK ============
+task.spawn(function()
+    while task.wait(0.03) do
+        if State.LockEnabled then
+            local myChar = LocalPlayer.Character
+            local myHRP = myChar and myChar:FindFirstChild("HumanoidRootPart")
+            if myHRP then
+                local target = State.CurrentTarget
+                if target then
+                    local tHum = target.Character and target.Character:FindFirstChildOfClass("Humanoid")
+                    local tHRP = target.Character and target.Character:FindFirstChild("HumanoidRootPart")
+                    if not tHum or tHum.Health <= 0 or not tHRP then
+                        State.CurrentTarget = nil
+                    end
+                end
+                if not State.CurrentTarget then
+                    local entry = pickTarget()
+                    if entry then State.CurrentTarget = entry.Player end
+                end
+                if State.CurrentTarget and State.CurrentTarget.Character then
+                    local tHRP = State.CurrentTarget.Character:FindFirstChild("HumanoidRootPart")
+                    if tHRP then
+                        local targetLook = tHRP.CFrame.LookVector
+                        local behindPos = tHRP.Position - targetLook * State.LockOffset + Vector3.new(0, State.LockHeight, 0)
+                        local goalCFrame = CFrame.new(behindPos, tHRP.Position + targetLook * 10)
+                        local currentCFrame = myHRP.CFrame
+                        local dist = (goalCFrame.Position - currentCFrame.Position).Magnitude
+                        local alpha = math.clamp(State.LockSmooth * (1 + dist * 0.1), 0.05, 0.9)
+                        myHRP.CFrame = currentCFrame:Lerp(goalCFrame, alpha)
+                    end
+                end
+            end
+        end
+        if State.CameraLock and State.CurrentTarget and State.CurrentTarget.Character then
+            local tHRP = State.CurrentTarget.Character:FindFirstChild("HumanoidRootPart")
+            if tHRP and workspace.CurrentCamera then
+                workspace.CurrentCamera.CFrame = CFrame.new(workspace.CurrentCamera.CFrame.Position, tHRP.Position)
+            end
+        end
+    end
+end)
+
+-- ============ BƯỚC 8: XỬ LÝ NHÂN VẬT MỚI ============
+LocalPlayer.CharacterAdded:Connect(function(char)
+    char:WaitForChild("Humanoid")
+    char:WaitForChild("HumanoidRootPart")
+    if State.HideSelf then applyHideSelf(char) end
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    if hum then
+        if State.WalkspeedValue then hum.WalkSpeed = State.WalkspeedValue end
+        if State.JumpValue then hum.JumpPower = State.JumpValue end
+    end
+end)
+
+if LocalPlayer.Character and State.HideSelf then
+    applyHideSelf(LocalPlayer.Character)
+end
+
+print("[palofsc] v9 PREMIUM: Trang trí menu đẹp | Fix đóng băng NPC/Player | 24 chức năng Grief hoạt động | Auto ngã liên tục.")
